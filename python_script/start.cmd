@@ -1,0 +1,1 @@
+start /min py -3 ftp_sync.py
