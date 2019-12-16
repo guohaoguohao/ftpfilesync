@@ -70,6 +70,7 @@ class Sync(threading.Thread):
         self.port = dispose["port"]
         self.is_passive_mode = dispose["is_passive_mode"]
         self.is_running = False
+        self.backup_section_basename = ""
 
     def __del__(self):
         self.ftp.close()
@@ -157,24 +158,29 @@ class Sync(threading.Thread):
                 for count in range(3):
                     if size_file == self.ftp.size(sync_file):
                         section_dirname, section_basename = os.path.split(sync_file)
-                        local_path = os.path.join(self.local_dir, section_basename)
-                        try:
-                            f = open(local_path, "wb")
-                            self.ftp.retrbinary('RETR ' + sync_file, f.write)
-                        except ftplib.all_errors as e:
-                            logger.warning('Download fail: {0} {1}'.format(sync_file, e))
-                        else:
-                            logger.info(
-                                'Download successful: {0} --> {1}'.format(sync_file, local_path))
-                            f.close()
+                        if (self.backup_section_basename != section_basename):
+                            self.backup_section_basename = section_basename
+                            local_path = os.path.join(self.local_dir, section_basename)
                             try:
-                                self.ftp.delete(sync_file)
+                                f = open(local_path, "wb")
+                                self.ftp.retrbinary('RETR ' + sync_file, f.write)
                             except ftplib.all_errors as e:
-                                logger.warning('Delete fail: {0} {1}'.format(sync_file, e))
+                                logger.warning('Download fail: {0} {1}'.format(sync_file, e))
                             else:
-                                logger.info('Delete Successful: {0}'.format(sync_file))
-                            finally:
+                                logger.info(
+                                    'Download successful: {0} --> {1}'.format(sync_file, local_path))
+                                f.close()
                                 break
+                                # try:
+                                #     self.ftp.delete(sync_file)
+                                # except ftplib.all_errors as e:
+                                #     logger.warning('Delete fail: {0} {1}'.format(sync_file, e))
+                                # else:
+                                #     logger.info('Delete Successful: {0}'.format(sync_file))
+                                # finally:
+                                #     break
+                        else:
+                            break
                     else:
                         time.sleep(self.check_file_timeout)
         return True
