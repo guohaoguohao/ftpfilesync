@@ -1,6 +1,6 @@
 {
     "ftp_server_1" : {
-        "is_enable": true,
+        "is_enable": false,
         "name": "changbai",
         "ip": "10.88.94.210",
         "user": "hakejia",

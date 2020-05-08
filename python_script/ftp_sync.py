@@ -6,8 +6,6 @@
 # @File: ftp_sync.py
 
 # import colorlog
-import logging
-import logging.handlers
 import time
 import json
 import ftplib
@@ -15,42 +13,92 @@ import sys
 import os
 import threading
 import tkinter as tk
+import logging.handlers
+import queue
+import datetime
+
+from concurrent_log_handler import ConcurrentRotatingFileHandler
 
 
-log_colors_config = {
-    'DEBUG': 'cyan',
-    'INFO': 'green',
-    'WARNING': 'yellow',
-    'ERROR': 'red',
-    'CRITICAL': 'red',
-}
+
 # formatter = colorlog.ColoredFormatter(
 #     '%(log_color)s[%(asctime)s] [%(filename)s:%(lineno)d] '
 #     '[%(module)s:%(funcName)s] [%(levelname)s]- %(message)s',
 #     log_colors=log_colors_config)
 # console_handler.setFormatter(formatter)
+
+# console_handler.setFormatter(logging.Formatter(
+#     '[%(asctime)s] [%(filename)s:%(lineno)d] '
+#     '[%(module)s:%(funcName)s] [%(levelname)7s]  %(message)s'))
+
+
+# 5m
+# f_handler = logging.handlers.RotatingFileHandler(
+#     r'records.log', 'a', 1024 * 1024 * 5)
+# f_handler.setLevel(logging.INFO)
+# f_handler.setFormatter(logging.Formatter(
+#     '[%(asctime)s] [%(filename)s:%(lineno)3d] '
+#     '[%(levelname)7s]  %(message)s'))
+# logger.addHandler(f_handler)
+
+log_colors_config = {'DEBUG': 'cyan',
+                           'INFO': 'green',
+                           'WARNING': 'yellow',
+                           'ERROR': 'red',
+                           'CRITICAL': 'red', }
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
-# console_handler.setFormatter(logging.Formatter(
-#     '[%(asctime)s] [%(filename)s:%(lineno)d] '
-#     '[%(module)s:%(funcName)s] [%(levelname)7s]  %(message)s'))
 console_handler.setFormatter(logging.Formatter(
     '[%(asctime)s] [%(filename)s:%(lineno)3d] '
     '[%(levelname)7s]  %(message)s'))
 logger.addHandler(console_handler)
-# 5m
-f_handler = logging.handlers.RotatingFileHandler(
-    r'records.log', 'a', 1024 * 1024 * 5)
+
+# 5
+file_size = 1024 * 1024 * 10
+f_handler = ConcurrentRotatingFileHandler(
+    r'records.log', 'a', file_size)
 f_handler.setLevel(logging.INFO)
 f_handler.setFormatter(logging.Formatter(
     '[%(asctime)s] [%(filename)s:%(lineno)3d] '
     '[%(levelname)7s]  %(message)s'))
 logger.addHandler(f_handler)
+display_queue = queue.Queue()
+
+class Mylog():
+
+     def insert(self, msg, level='INFO'):
+         log_level = level
+         if log_level == 'INFO':
+            logger.info(msg)
+            msg = '[INFO]' + msg
+         elif log_level == 'ERROR':
+            logger.error(msg)
+            msg = '[ERROR]' + msg
+         elif log_level == 'WARNING':
+            logger.warning(msg)
+            msg = '[WARNING]' + msg
+         else:
+            logger.info(msg)
+            msg = '[INFO]' + msg
+         now = datetime.datetime.now()
+         ti = now.strftime('%Y-%m-%d %H:%M:%S')
+         msg = ti + msg + "\n"
+         display_queue.put_nowait(msg)
+
+     def get_log(self):
+         try:
+             msg = display_queue.get_nowait()
+         except:
+             return None
+         return msg
 
 
-class Sync(threading.Thread):
+
+
+
+class Sync(threading.Thread, Mylog):
     def __init__(self, threadid, dispose):
         threading.Thread.__init__(self)
         self.threadid = threadid
@@ -80,12 +128,12 @@ class Sync(threading.Thread):
             self.ftp.set_pasv(self.is_passive_mode)
             self.ftp.connect(self.ip, self.port, self.connect_timeout)
         except ftplib.all_errors as e:
-            logger.warning(
-                'Connect fail: {0}[{1}] {2}'.format(self.name, self.ip, e))
+            msg = 'Connect fail: {0}[{1}] {2}'.format(self.name, self.ip, e)
+            self.insert(msg,level='WARNING')
             return False
         else:
-            logger.info(
-                'Connect successful: {0}[{1}]'.format(self.name, self.ip))
+            msg = 'Connect successful: {0}[{1}]'.format(self.name, self.ip)
+            self.insert(msg,level='INFO')
             return True
 
     def ftp_login(self):
@@ -93,24 +141,25 @@ class Sync(threading.Thread):
             self.ftp.login(self.user, self.password)
             self.ftp.getwelcome()
         except ftplib.all_errors as e:
-            logger.warning(
-                'Login fail: {0}[{1}] {2}'.format(self.name, self.ip, e))
+            msg = 'Login fail: {0}[{1}] {2}'.format(self.name, self.ip, e)
+            self.insert(msg,level='WARNING')
             return False
         else:
-            logger.info(
-                'Login successful: {0}[{1}]'.format(self.name, self.ip))
+            msg = 'Login successful: {0}[{1}]'.format(self.name, self.ip)
+            self.insert(msg,level='INFO')
             return True
 
     def ftp_logout(self):
         try:
             self.ftp.quit()
         except ftplib.all_errors as e:
-            logger.warning('Logout fail issue: {0}[{1}] {2}'.format(self.name, self.ip, e))
+            msg = 'Logout fail issue: {0}[{1}] {2}'.format(self.name, self.ip, e)
+            self.insert(msg,level='WARNING')
             self.ftp.close()
             return True
         else:
-            logger.info(
-                'Logout: {0}[{1}]'.format(self.name, self.ip))
+            msg = 'Logout: {0}[{1}]'.format(self.name, self.ip)
+            self.insert(msg,level='INFO')
             return True
 
     def create_local_dir(self):
@@ -118,12 +167,12 @@ class Sync(threading.Thread):
             try:
                 os.makedirs(self.local_dir, exist_ok=True)
             except OSError as e:
-                logger.error(
-                    'Create dir fail: {0}[{1}] {2}'.format(self.name, self.ip, e))
+                msg = 'Create dir fail: {0}[{1}] {2}'.format(self.name, self.ip, e)
+                self.insert(msg,level='ERROR')
                 return False
             else:
-                logger.info(
-                    'Create dir successful: {0}[{1}] {2}'.format(self.name, self.ip, self.local_dir))
+                msg = 'Create dir successful: {0}[{1}] {2}'.format(self.name, self.ip, self.local_dir)
+                self.insert(msg,level='INFO')
                 return True
         return True
 
@@ -132,8 +181,8 @@ class Sync(threading.Thread):
         try:
             files_dirs = list(self.ftp.nlst(self.sync_dir))
         except ftplib.all_errors as e:
-            logger.warning(
-                'sync_dir error: {0}[{1}] {2} {3}'.format(self.name, self.ip, self.sync_dir, e))
+            msg = 'sync_dir error: {0}[{1}] {2} {3}'.format(self.name, self.ip, self.sync_dir, e)
+            self.insert(msg,level='WARNING')
             return files
         else:
             if 0 != len(files_dirs):
@@ -165,10 +214,11 @@ class Sync(threading.Thread):
                                 f = open(local_path, "wb")
                                 self.ftp.retrbinary('RETR ' + sync_file, f.write)
                             except ftplib.all_errors as e:
-                                logger.warning('Download fail: {0} {1}'.format(sync_file, e))
+                                msg = 'Download fail: {0} {1}'.format(sync_file, e)
+                                self.insert(msg,level='WARNING')
                             else:
-                                logger.info(
-                                    'Download successful: {0} --> {1}'.format(sync_file, local_path))
+                                msg = 'Download successful: {0} --> {1}'.format(sync_file, local_path)
+                                self.insert(msg,level='INFO')
                                 f.close()
                                 break
                                 # try:
@@ -225,12 +275,12 @@ class Sync(threading.Thread):
         # self.ftp_logout()
 
     def run(self):
-        logger.info(
-            'Tread{0} running: {1}[{2}]'.format(self.threadid, self.name, self.ip))
+        msg = 'Tread{0} running: {1}[{2}]'.format(self.threadid, self.name, self.ip)
+        self.insert(msg,level='INFO')
         self.client_start()
 
 
-class Application(tk.Frame):
+class Application(tk.Frame, Mylog):
     def __init__(self, master=None):
         super().__init__(master)
         self.thread_list = []
@@ -253,12 +303,15 @@ class Application(tk.Frame):
         self.button_quit.pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
         self.f = open('records.log', 'a+')
         self.output_log = tk.Text(self)
+
         # self.output_log.insert(tk.INSERT, self.log_content)
         self.log_content = ""
         self.output_log.pack(fill=tk.X)
         self.read_log_thread = threading.Timer(2, self.on_timer_read_log)
         self.read_log_thread.setDaemon(True)
         self.read_log_thread.start()
+        self.line_cout = 0
+        self.line_max = 100
 
     def load_config(self, filename):
         try:
@@ -266,13 +319,16 @@ class Application(tk.Frame):
                 try:
                     config = json.load(load_f)
                 except json.JSONDecodeError as e:
-                    logger.error('Load config fail: Json decode error: {0}, {1}'.format(e.msg, e.pos))
+                    msg = 'Load config fail: Json decode error: {0}, {1}'.format(e.msg, e.pos)
+                    self.insert(msg,level='ERROR')
                     return {}
                 else:
-                    logger.info('Load config successful: {0} FTP servers'.format(len(config)))
+                    msg = 'Load config successful: {0} FTP servers'.format(len(config))
+                    self.insert(msg, level='INFO')
                     return config
         except IOError as e:
-            logger.error('Load config fail: {0}'.format(e))
+            msg = 'Load config fail: {0}'.format(e)
+            self.insert(msg,level='ERROR')
             return {}
 
     def start(self):
@@ -289,39 +345,49 @@ class Application(tk.Frame):
 
     def restart(self):
         for t_single in self.thread_list:
-            logger.info(
-                'Tread{0} restart: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip))
+            msg = 'Tread{0} restart: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip)
+            self.insert(msg,level='INFO')
             if t_single.is_alive():
-                logger.info(
-                    'Tread{0} restart[alive]: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip))
+                msg = 'Tread{0} restart[alive]: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip)
+                self.insert(msg,level='INFO')
                 t_single.client_quit()
                 t_single.join(timeout=15)
-                logger.info(
-                    'Tread{0} restart[extinct]: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip))
+                msg = 'Tread{0} restart[extinct]: {1}[{2}]'.format(t_single.threadid, t_single.name, t_single.ip)
+                self.insert(msg,level='INFO')
         self.thread_list.clear()
         self.start()
 
     def terminal(self):
         for single in self.thread_list:
-            logger.info(
-                'Tread{0} quit: {1}[{2}]'.format(single.threadid, single.name, single.ip))
+            msg = 'Tread{0} quit: {1}[{2}]'.format(single.threadid, single.name, single.ip)
+            self.insert(msg, level='INFO')
             if single.is_alive():
-                logger.info(
-                    'Tread{0} quit[alive]: {1}[{2}]'.format(single.threadid, single.name, single.ip))
+                msg = 'Tread{0} quit[alive]: {1}[{2}]'.format(single.threadid, single.name, single.ip)
+                self.insert(msg, level='INFO')
                 single.client_quit()
                 single.join(timeout=15)
-                logger.info(
-                    'Tread{0} quit[extinct]: {1}[{2}]'.format(single.threadid, single.name, single.ip))
+                msg = 'Tread{0} quit[extinct]: {1}[{2}]'.format(single.threadid, single.name, single.ip)
+                self.insert(msg,level='INFO')
         self.thread_list.clear()
         logger.info('exit')
         self.master.quit()
 
     def on_timer_read_log(self):
-        self.log_content = self.f.read()
-        self.output_log.insert(tk.INSERT, self.log_content)
-        self.read_log_thread = threading.Timer(2, self.on_timer_read_log)
-        self.read_log_thread.setDaemon(True)
-        self.read_log_thread.start()
+        log = self.get_log()
+        if log is not None:
+            self.line_cout += 1
+            self.output_log.insert(tk.END, log)
+            if self.line_cout > self.line_max:
+                self.output_log.delete(1.0, 50.0)
+                self.line_cout -= 49
+            self.output_log.see(tk.END)
+            self.read_log_thread = threading.Timer(2, self.on_timer_read_log)
+            self.read_log_thread.setDaemon(True)
+            self.read_log_thread.start()
+        else:
+            self.read_log_thread = threading.Timer(2, self.on_timer_read_log)
+            self.read_log_thread.setDaemon(True)
+            self.read_log_thread.start()
 
 
 if __name__ == '__main__':
@@ -329,5 +395,3 @@ if __name__ == '__main__':
     app = Application(master=root)
     app.master.title("FTP客户端应用")
     app.mainloop()
-
-
